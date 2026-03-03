@@ -36,47 +36,18 @@ export default function ConverterPage() {
   const doFetch = async () => {
     setLoading(true);
     const now = new Date().toISOString();
-    const bust = Date.now();
-    let found = false;
-
-    // Try 1
     try {
-      const r = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/aud.json?cb=${bust}`);
+      const bust = Date.now();
+      const r = await fetch(`/api/rate?t=${bust}`, { cache: "no-store" });
       const d = await r.json();
-      if (d?.aud?.thb > 0) {
-        setRateData({ rate: d.aud.thb, source: "jsDelivr", fetchedAt: now, error: null });
-        found = true;
+      if (d?.rate > 0) {
+        setRateData({ rate: d.rate, source: d.source, fetchedAt: now, error: null });
+      } else {
+        setRateData({ rate: null, source: null, fetchedAt: now, error: d.error ?? "ดึงอัตราไม่ได้" });
       }
-    } catch { /* continue */ }
-
-    // Try 2
-    if (!found) {
-      try {
-        const r = await fetch(`https://api.frankfurter.app/latest?from=AUD&to=THB&t=${bust}`);
-        const d = await r.json();
-        if (d?.rates?.THB > 0) {
-          setRateData({ rate: d.rates.THB, source: "Frankfurter", fetchedAt: now, error: null });
-          found = true;
-        }
-      } catch { /* continue */ }
+    } catch {
+      setRateData({ rate: null, source: null, fetchedAt: now, error: "เชื่อมต่อไม่ได้" });
     }
-
-    // Try 3
-    if (!found) {
-      try {
-        const r = await fetch(`https://api.exchangerate-api.com/v4/latest/AUD?t=${bust}`);
-        const d = await r.json();
-        if (d?.rates?.THB > 0) {
-          setRateData({ rate: d.rates.THB, source: "ExchangeRate-API", fetchedAt: now, error: null });
-          found = true;
-        }
-      } catch { /* continue */ }
-    }
-
-    if (!found) {
-      setRateData({ rate: null, source: null, fetchedAt: now, error: "ดึงอัตราไม่ได้ กรุณากรอกเอง" });
-    }
-
     setLoading(false);
   };
 
