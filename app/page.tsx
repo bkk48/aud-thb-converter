@@ -44,7 +44,7 @@ export default function ConverterPage() {
 
   const audNum = parseFloat(aud) || 0;
   const feeNum = parseFloat(fee) || 0;
-  const activeRate = rate ?? (parseFloat(manualRate) || null);
+  const activeRate = rate ? rate + 0.15 : (parseFloat(manualRate) || null);
   const netAud = audNum * (1 - feeNum / 100);
   const thb = activeRate !== null ? netAud * activeRate : null;
   const isAdmin = user?.primaryEmailAddress?.emailAddress === ADMIN_EMAIL;
