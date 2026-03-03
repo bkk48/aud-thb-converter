@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 const GOOGLE_FINANCE_URL = "https://www.google.com/finance/quote/AUD-THB";
 
-export const dynamic = "force-dynamic"; // Never cache — always fetch fresh rate
+export const dynamic = "force-dynamic";
 
 interface RateResult {
   rate: number;
@@ -10,19 +10,19 @@ interface RateResult {
 }
 
 /**
- * Source 1: open.er-api.com — free, no key, very reliable
+ * Source 1: fawazahmed0 currency API — CDN hosted on jsDelivr, no key, very reliable
  */
-async function fetchFromOpenER(): Promise<RateResult | null> {
+async function fetchFromCDN(): Promise<RateResult | null> {
   try {
-    const res = await fetch("https://open.er-api.com/v6/latest/AUD", {
-      signal: AbortSignal.timeout(6000),
-      cache: "no-store",
-    });
+    const res = await fetch(
+      "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/aud.json",
+      { signal: AbortSignal.timeout(6000), cache: "no-store" }
+    );
     if (!res.ok) return null;
     const data = await res.json();
-    const rate = data?.rates?.THB;
+    const rate = data?.aud?.thb;
     if (typeof rate === "number" && rate > 0) {
-      return { rate, source: "open.er-api.com" };
+      return { rate, source: "jsDelivr CDN" };
     }
     return null;
   } catch {
@@ -31,16 +31,35 @@ async function fetchFromOpenER(): Promise<RateResult | null> {
 }
 
 /**
- * Source 2: Frankfurter API — ECB data, free, no key
+ * Source 2: fallback mirror of same API
+ */
+async function fetchFromCDNFallback(): Promise<RateResult | null> {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const res = await fetch(
+      `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${today}/v1/currencies/aud.json`,
+      { signal: AbortSignal.timeout(6000), cache: "no-store" }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rate = data?.aud?.thb;
+    if (typeof rate === "number" && rate > 0) {
+      return { rate, source: "jsDelivr CDN (dated)" };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Source 3: Frankfurter — ECB data, free, no key
  */
 async function fetchFromFrankfurter(): Promise<RateResult | null> {
   try {
     const res = await fetch(
       "https://api.frankfurter.app/latest?from=AUD&to=THB",
-      {
-        signal: AbortSignal.timeout(6000),
-        cache: "no-store",
-      }
+      { signal: AbortSignal.timeout(6000), cache: "no-store" }
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -54,40 +73,15 @@ async function fetchFromFrankfurter(): Promise<RateResult | null> {
   }
 }
 
-/**
- * Source 3: exchangerate-api.com — free tier, no key
- */
-async function fetchFromExchangeRateApi(): Promise<RateResult | null> {
-  try {
-    const res = await fetch(
-      "https://api.exchangerate-api.com/v4/latest/AUD",
-      {
-        signal: AbortSignal.timeout(6000),
-        cache: "no-store",
-      }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    const rate = data?.rates?.THB;
-    if (typeof rate === "number" && rate > 0) {
-      return { rate, source: "exchangerate-api.com" };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 export async function GET() {
-  // Try all 3 sources in parallel for speed, use first success
-  const [er, frankfurter, exchangeRate] = await Promise.allSettled([
-    fetchFromOpenER(),
+  // Try all sources in parallel
+  const results = await Promise.allSettled([
+    fetchFromCDN(),
+    fetchFromCDNFallback(),
     fetchFromFrankfurter(),
-    fetchFromExchangeRateApi(),
   ]);
 
-  // Pick first successful result
-  for (const result of [er, frankfurter, exchangeRate]) {
+  for (const result of results) {
     if (result.status === "fulfilled" && result.value !== null) {
       return NextResponse.json({
         rate: result.value.rate,
@@ -99,7 +93,6 @@ export async function GET() {
     }
   }
 
-  // All failed
   return NextResponse.json({
     rate: null,
     source: null,
