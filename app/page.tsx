@@ -4,23 +4,8 @@ import { useState, useEffect } from "react";
 import { useUser, SignInButton, SignOutButton } from "@clerk/nextjs";
 import Link from "next/link";
 
-interface RateData {
-  rate: number | null;
-  source: string | null;
-  fetchedAt: string;
-  error: string | null;
-}
-
 const fmt = (n: number, d: number) =>
   n.toLocaleString("en-AU", { minimumFractionDigits: d, maximumFractionDigits: d });
-
-const formatTime = (iso: string) => {
-  try {
-    return new Intl.DateTimeFormat("th-TH", {
-      hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Bangkok",
-    }).format(new Date(iso));
-  } catch { return iso; }
-};
 
 const ADMIN_EMAIL = "c.amphorncharat@gmail.com";
 const GOOGLE_FINANCE_URL = "https://www.google.com/finance/quote/AUD-THB";
@@ -30,23 +15,27 @@ export default function ConverterPage() {
   const [aud, setAud] = useState("1000");
   const [fee, setFee] = useState("1");
   const [manualRate, setManualRate] = useState("");
-  const [rateData, setRateData] = useState<RateData | null>(null);
+  const [rate, setRate] = useState<number | null>(null);
+  const [source, setSource] = useState<string | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const doFetch = async () => {
     setLoading(true);
-    const now = new Date().toISOString();
     try {
-      const bust = Date.now();
-      const r = await fetch(`/api/rate?t=${bust}`, { cache: "no-store" });
-      const d = await r.json();
-      if (d?.rate > 0) {
-        setRateData({ rate: d.rate, source: d.source, fetchedAt: now, error: null });
+      const res = await fetch(`/api/rate?t=${Date.now()}`);
+      const data = await res.json();
+      if (data.rate > 0) {
+        setRate(data.rate);
+        setSource(data.source);
+        setFetchedAt(new Date().toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" }));
+        setError(null);
       } else {
-        setRateData({ rate: null, source: null, fetchedAt: now, error: d.error ?? "ดึงอัตราไม่ได้" });
+        setError(data.error ?? "ดึงอัตราไม่ได้");
       }
     } catch {
-      setRateData({ rate: null, source: null, fetchedAt: now, error: "เชื่อมต่อไม่ได้" });
+      setError("เชื่อมต่อไม่ได้");
     }
     setLoading(false);
   };
@@ -55,7 +44,7 @@ export default function ConverterPage() {
 
   const audNum = parseFloat(aud) || 0;
   const feeNum = parseFloat(fee) || 0;
-  const activeRate = rateData?.rate ?? (parseFloat(manualRate) || null);
+  const activeRate = rate ?? (parseFloat(manualRate) || null);
   const netAud = audNum * (1 - feeNum / 100);
   const thb = activeRate !== null ? netAud * activeRate : null;
   const isAdmin = user?.primaryEmailAddress?.emailAddress === ADMIN_EMAIL;
@@ -81,7 +70,7 @@ export default function ConverterPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="mono text-[10px] tracking-widest uppercase opacity-50 mb-1">อัตราแลกเปลี่ยน · 1 AUD =</p>
-              {!rateData && loading ? (
+              {loading && !rate ? (
                 <div className="h-8 w-40 rounded animate-pulse" style={{ background: "rgba(201,168,76,0.1)" }} />
               ) : activeRate ? (
                 <p className="text-3xl font-bold" style={{ color: "var(--gold-light)", fontFamily: "var(--font-mono)" }}>
@@ -90,10 +79,8 @@ export default function ConverterPage() {
               ) : (
                 <p className="text-xl font-semibold" style={{ color: "#e05d5d" }}>ไม่พบอัตรา</p>
               )}
-              {rateData && !rateData.error && (
-                <p className="mono text-[10px] opacity-40 mt-1">
-                  via {rateData.source} · {formatTime(rateData.fetchedAt)} ICT
-                </p>
+              {source && fetchedAt && (
+                <p className="mono text-[10px] opacity-40 mt-1">via {source} · {fetchedAt} ICT</p>
               )}
             </div>
 
@@ -118,10 +105,10 @@ export default function ConverterPage() {
           </a>
         </div>
 
-        {rateData?.error && (
+        {error && (
           <div className="mx-6 mt-5 rounded-xl px-4 py-3"
             style={{ background: "rgba(224,93,93,0.08)", border: "1px solid rgba(224,93,93,0.2)" }}>
-            <p className="text-sm font-semibold mb-2" style={{ color: "#e07070" }}>⚠ {rateData.error}</p>
+            <p className="text-sm font-semibold mb-2" style={{ color: "#e07070" }}>⚠ {error}</p>
             <input type="number" placeholder="กรอกอัตราเอง เช่น 22.50" value={manualRate}
               onChange={e => setManualRate(e.target.value)}
               className="w-full px-3 py-2 rounded-lg text-sm mono outline-none border"
@@ -129,7 +116,6 @@ export default function ConverterPage() {
           </div>
         )}
 
-        {/* Inputs */}
         <div className="px-6 py-5 space-y-5">
           <div>
             <label className="block text-xs tracking-widest uppercase opacity-50 mb-2 mono">จำนวนเงิน (AUD)</label>
@@ -153,7 +139,6 @@ export default function ConverterPage() {
 
         <div className="divider mx-6" />
 
-        {/* Results */}
         <div className="px-6 py-5">
           <p className="mono text-[10px] tracking-widest uppercase opacity-40 mb-4">ผลการคำนวณ</p>
           <div className="space-y-3">
@@ -162,7 +147,6 @@ export default function ConverterPage() {
             <Row label="AUD หลังหัก fee" value={`A$ ${fmt(netAud, 2)}`} />
             <Row label="อัตราที่ใช้" value={activeRate ? `${fmt(activeRate, 4)} THB/AUD` : "—"} muted />
           </div>
-
           <div className="mt-5 rounded-2xl px-5 py-4 text-center"
             style={{ background: "rgba(201,168,76,0.06)", border: "1px solid rgba(201,168,76,0.25)" }}>
             <p className="mono text-[10px] tracking-widest uppercase opacity-50 mb-1">THB ที่ผู้รับจะได้รับ</p>
@@ -174,7 +158,6 @@ export default function ConverterPage() {
           </div>
         </div>
 
-        {/* Auth / Buttons */}
         <div className="px-6 pb-6">
           <div className="divider mb-4" />
           {!isSignedIn ? (

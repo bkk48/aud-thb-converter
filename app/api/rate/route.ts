@@ -1,103 +1,58 @@
 import { NextResponse } from "next/server";
 
-const GOOGLE_FINANCE_URL = "https://www.google.com/finance/quote/AUD-THB";
-
 export const dynamic = "force-dynamic";
-
-interface RateResult {
-  rate: number;
-  source: string;
-}
-
-/**
- * Source 1: fawazahmed0 currency API — CDN hosted on jsDelivr, no key, very reliable
- */
-async function fetchFromCDN(): Promise<RateResult | null> {
-  try {
-    const res = await fetch(
-      "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/aud.json",
-      { signal: AbortSignal.timeout(6000), cache: "no-store" }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    const rate = data?.aud?.thb;
-    if (typeof rate === "number" && rate > 0) {
-      return { rate, source: "jsDelivr CDN" };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Source 2: fallback mirror of same API
- */
-async function fetchFromCDNFallback(): Promise<RateResult | null> {
-  try {
-    const today = new Date().toISOString().split("T")[0];
-    const res = await fetch(
-      `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${today}/v1/currencies/aud.json`,
-      { signal: AbortSignal.timeout(6000), cache: "no-store" }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    const rate = data?.aud?.thb;
-    if (typeof rate === "number" && rate > 0) {
-      return { rate, source: "jsDelivr CDN (dated)" };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Source 3: Frankfurter — ECB data, free, no key
- */
-async function fetchFromFrankfurter(): Promise<RateResult | null> {
-  try {
-    const res = await fetch(
-      "https://api.frankfurter.app/latest?from=AUD&to=THB",
-      { signal: AbortSignal.timeout(6000), cache: "no-store" }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    const rate = data?.rates?.THB;
-    if (typeof rate === "number" && rate > 0) {
-      return { rate, source: "Frankfurter (ECB)" };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+export const revalidate = 0;
 
 export async function GET() {
-  // Try all sources in parallel
-  const results = await Promise.allSettled([
-    fetchFromCDN(),
-    fetchFromCDNFallback(),
-    fetchFromFrankfurter(),
-  ]);
+  const bust = Date.now();
 
-  for (const result of results) {
-    if (result.status === "fulfilled" && result.value !== null) {
-      return NextResponse.json({
-        rate: result.value.rate,
-        source: result.value.source,
-        sourceUrl: GOOGLE_FINANCE_URL,
-        fetchedAt: new Date().toISOString(),
-        error: null,
-      });
+  // Try 1: jsDelivr
+  try {
+    const res = await fetch(
+      `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/aud.json?cb=${bust}`,
+      { cache: "no-store" }
+    );
+    const data = await res.json();
+    if (data?.aud?.thb > 0) {
+      return NextResponse.json(
+        { rate: data.aud.thb, source: "jsDelivr", error: null },
+        { headers: { "Cache-Control": "no-store, no-cache" } }
+      );
     }
-  }
+  } catch { /* next */ }
 
-  return NextResponse.json({
-    rate: null,
-    source: null,
-    sourceUrl: GOOGLE_FINANCE_URL,
-    fetchedAt: new Date().toISOString(),
-    error: "ไม่สามารถดึงอัตราแลกเปลี่ยนได้ กรุณากรอกอัตราด้วยตนเอง",
-  });
+  // Try 2: Frankfurter
+  try {
+    const res = await fetch(
+      `https://api.frankfurter.app/latest?from=AUD&to=THB`,
+      { cache: "no-store" }
+    );
+    const data = await res.json();
+    if (data?.rates?.THB > 0) {
+      return NextResponse.json(
+        { rate: data.rates.THB, source: "Frankfurter", error: null },
+        { headers: { "Cache-Control": "no-store, no-cache" } }
+      );
+    }
+  } catch { /* next */ }
+
+  // Try 3: exchangerate-api
+  try {
+    const res = await fetch(
+      `https://api.exchangerate-api.com/v4/latest/AUD`,
+      { cache: "no-store" }
+    );
+    const data = await res.json();
+    if (data?.rates?.THB > 0) {
+      return NextResponse.json(
+        { rate: data.rates.THB, source: "ExchangeRate-API", error: null },
+        { headers: { "Cache-Control": "no-store, no-cache" } }
+      );
+    }
+  } catch { /* all failed */ }
+
+  return NextResponse.json(
+    { rate: null, source: null, error: "ดึงอัตราไม่ได้" },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
